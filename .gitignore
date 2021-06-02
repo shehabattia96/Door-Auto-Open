@@ -1,0 +1,5 @@
+build/
+.pio/
+.vscode/
+
+.environment_variables.h
