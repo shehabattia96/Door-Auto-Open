@@ -48,24 +48,35 @@ StepperMotorPins getNextStepPin(StepperMotorPins currentPin, bool isClockwise) {
         case StepperMotorPins::IN2: return isClockwise ? StepperMotorPins::IN3 : StepperMotorPins::IN1;
         case StepperMotorPins::IN3: return isClockwise ? StepperMotorPins::IN4 : StepperMotorPins::IN2;
         case StepperMotorPins::IN4: return isClockwise ? StepperMotorPins::IN1 : StepperMotorPins::IN3;
+        case StepperMotorPins::HOLD: return StepperMotorPins::HOLD;
+        case StepperMotorPins::OFF: return StepperMotorPins::OFF;
     };
+    return StepperMotorPins::OFF;
 }
 
 // Pin should be high if 1. pinToCompare is the pinToSet 2. if pinToCompare is set to HOLD
 bool checkIfPinShouldBeHigh(StepperMotorPins pinToSet, StepperMotorPins pinToCompare) {
-    return (pinToSet && pinToCompare) || pinToCompare == StepperMotorPins::HOLD;
+    return (pinToSet == pinToCompare) || pinToCompare == StepperMotorPins::HOLD;
 }
 
 // sets one of the four StepperMotorPins to high and the rest to low.
 void setStepperMotorGPIOLevels(StepperMotorPins pin) {
-    gpio_set_level((gpio_num_t)StepperMotorPins::IN1, 
-        checkIfPinShouldBeHigh(StepperMotorPins::IN1,pin));
-    gpio_set_level((gpio_num_t)StepperMotorPins::IN2, 
-        checkIfPinShouldBeHigh(StepperMotorPins::IN2,pin));
-    gpio_set_level((gpio_num_t)StepperMotorPins::IN3, 
-        checkIfPinShouldBeHigh(StepperMotorPins::IN3,pin));
-    gpio_set_level((gpio_num_t)StepperMotorPins::IN4, 
-        checkIfPinShouldBeHigh(StepperMotorPins::IN4,pin));
+    bool in1Level = checkIfPinShouldBeHigh(StepperMotorPins::IN1,pin);
+    bool in2Level = checkIfPinShouldBeHigh(StepperMotorPins::IN2,pin);
+    bool in3Level = checkIfPinShouldBeHigh(StepperMotorPins::IN3,pin);
+    bool in4Level = checkIfPinShouldBeHigh(StepperMotorPins::IN4,pin);
+    gpio_set_level((gpio_num_t)StepperMotorPins::IN1, in1Level);
+    gpio_set_level((gpio_num_t)StepperMotorPins::IN2, in2Level);
+    gpio_set_level((gpio_num_t)StepperMotorPins::IN3, in3Level);
+    gpio_set_level((gpio_num_t)StepperMotorPins::IN4, in4Level);
+
+    // #if DEBUG_MODE
+    //     ESP_LOGI(TAG, "Current pin %d", pin);
+    //     ESP_LOGI(TAG, "in1Level %s", (in1Level?"high":"low"));
+    //     ESP_LOGI(TAG, "in2Level %s", (in2Level?"high":"low"));
+    //     ESP_LOGI(TAG, "in3Level %s", (in3Level?"high":"low"));
+    //     ESP_LOGI(TAG, "in4Level %s", (in4Level?"high":"low"));
+    // #endif
 }
 
 int steps = 0;
@@ -76,22 +87,34 @@ void app_main()
     initNvsFlash();
 
     // config and start wifi
-    registerWifiEventHandlers(); // this allocates the default event queue loop
-    initWifi();
-     
-    // TODO: subscribe to mqtt task for controlling motors       
+    // registerWifiEventHandlers(); // this allocates the default event queue loop
+    // initWifi();
+    // TODO: subscribe to mqtt task for controlling motors    
+
+    gpio_set_direction((gpio_num_t)StepperMotorPins::IN1, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)StepperMotorPins::IN2, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)StepperMotorPins::IN3, GPIO_MODE_OUTPUT);
+    gpio_set_direction((gpio_num_t)StepperMotorPins::IN4, GPIO_MODE_OUTPUT);
+        
     while (1)
     {
-        if (nextStepPin == StepperMotorPins::OFF || nextStepPin == StepperMotorPins::HOLD)
+        if (nextStepPin == StepperMotorPins::OFF || nextStepPin == StepperMotorPins::HOLD){
             vTaskDelay(500 / portTICK_RATE_MS);
+            ESP_LOGI(TAG, "Stepper is set to off or hold.");
+            ESP_LOGI(TAG, "Resuming stepper motor in 1 second");
+            vTaskDelay(1000 / portTICK_RATE_MS);
+            nextStepPin = StepperMotorPins::IN1;
+        }
         else {
-            vTaskDelay(2/portTICK_RATE_MS); // delay 2 milliseconds before writing the next stepper motor command
+            vTaskDelay(10/portTICK_RATE_MS);
             setStepperMotorGPIOLevels(nextStepPin);
+            if (steps > 1024) {
+                isClockwise = !isClockwise;
+                steps = 0;
+                ESP_LOGI(TAG, "Steps reached 1024, switching direction");
+            }
+            nextStepPin = getNextStepPin(nextStepPin, isClockwise);
+            steps++;
         }
-        if (steps > 1024) {
-            isClockwise = !isClockwise;
-            steps = 0;
-        }
-        nextStepPin = getNextStepPin(nextStepPin, isClockwise);
     }
 }
